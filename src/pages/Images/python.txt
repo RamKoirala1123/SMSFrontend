@@ -1,0 +1,273 @@
+
+from random import *
+
+from numpy import character
+
+
+
+def generateDFA():
+    characters = ['a', 'b']
+    n = randint(16, 20) # number of states
+    delta = {}  # transitions
+    for i in range(0, n):
+        fromState = randint(0, n - 1)
+        toState = randint(0, n - 1)     # generate random transitions
+        delta[i] = {'a': fromState, 'b': toState}
+       
+    for j in range(0,n):
+        print("Transitions for state",j,".", delta[j]) # print transitions
+
+
+    F = sample(delta.keys(), k=(round(.3 * n))) # final / accepting states
+    F.sort()
+    print("Accepting states: ",F)
+    startState = randint(0, n - 1)          # random start state
+    print("Start state: ", startState)
+    
+    states = [i for i in range(0, n)]
+    regular = list(set(states).symmetric_difference(F))  # filter out accepting states
+    return DFA(n, startState, F, regular, characters, delta)
+
+class DFA:
+    disc = 0  # Keeps track of the discovery time of states for Tarjan's Algorithm.
+    SCC = []  # Adds the SCC found from Tarjan's Algorithm.
+
+    # initialize automaton
+    def __init__(self, n, startState, F, regular, sigma, delta):
+        self.n = n  # states
+        self.startState = startState  # Start state
+        self.F = F  # final / accepting states
+        self.regular = regular  # non-accepting states
+        self.sigma = sigma  # alphabet
+        self.delta = delta  # transitions
+
+    def BFS(self, startState):
+       
+        tempQueue= []
+        visited = []
+
+        
+        tempQueue.append(startState)
+        visited.append(startState)
+
+
+        # traverse through nodes
+        depth = {i: 0 for i in range(self.n)}
+        while (len(tempQueue) != 0):
+
+
+            temp = tempQueue[0]
+            tempQueue.pop(0)
+            for item, value in self.delta[temp].items():
+               
+                if value not in visited:
+                    visited.append(value)        # If the node was not visited, aadd it to the visited and tempQueue, and update depth.
+                    tempQueue.append(value)
+
+                    depth[value] = depth[temp] + 1
+
+        maxDepth = max(depth.values())             # Select maximum depth and its corresponding state
+        maxStates = [i for i,t_depth in depth.items() if t_depth == maxDepth]
+        return maxStates, maxDepth
+
+   
+    def Depth(self):
+        maxStates, maxDepth = self.BFS(self.startState)     #select node with longest distance from startState
+        finalMaxState, finalDepth = maxStates, maxDepth  
+        for state in maxStates:
+            temp_maximum, temp_depth = self.BFS(state)      #select max depth from each max State
+            # Update depth and node for each larger value
+            if temp_depth > finalDepth:
+                finalMaxState = temp_maximum
+                finalDepth = temp_depth
+        # Displays the depth of the DFA.
+        print("States:", self.n)
+        
+        print("Depth:", finalDepth)
+        return finalDepth
+
+    def findStates(self, delta, symbol, givenState):
+        foundStates = []
+        for state, values in delta.items():
+            if (symbol in values.keys()) and (values[symbol] in givenState):   #find all states which reach a given state through a specific symbol (a or b)
+                foundStates.append(state)
+        return foundStates
+
+
+
+    def hopcroft(self):
+
+        partitions = [self.F, self.regular] # all types of states
+
+        
+        D = [self.F] # only final / accepting states
+        while len(D) != 0:
+            X = D.pop(0)
+            for symbols in self.sigma: # for all symbols (a,b)
+
+
+                
+                
+                statesReached = self.findStates(self.delta, symbols, X) # the states on which a transition on symbol will lead to a state in X
+                # For each partition in the partitions.
+                for i, part in enumerate(partitions[:]):
+                    # If the set of states leading A and not leading to A are non empty.
+                    intersection = list(set(statesReached).intersection(part))
+                    difference = list(set(part).difference(statesReached))
+                    if (len(intersection) != 0 and len(difference) != 0):
+                        # Refine the partition further by replacing it with the two sets.
+                        partitions.remove(part)
+                        partitions.append(intersection)
+                        partitions.append(difference)
+                        # If the partition is found in the distinguishers.
+                        if part in D:
+                            # Replace the partition in distinguishers with the two sets.
+                            D.remove(part)
+                            D.append(intersection)
+                            D.append(difference)
+                        else:
+                            if len(difference) > len(intersection):
+                                D.append(intersection)
+                            else:
+                                D.append(difference)
+        return partitions
+
+    # new transitions from a given state in a partition to other partitions.
+    def NewTransitions(self, state, partitions):
+
+        originalTrans = self.delta[state] # original transitions
+        newTrans = {} # new transitions
+
+
+
+        for symbol in self.sigma:  # symbol = a/b
+         if symbol in originalTrans.keys():
+                state = originalTrans[symbol]  # given state ->(symbol) state 
+
+
+
+                for i, partition in enumerate(partitions):
+                    # set transition from given state with symbol
+                    if state in partition:
+                        newTrans[symbol] = i
+                        break
+        return newTrans
+
+
+
+
+    def minimize(self):              # Hopcroft's algorithm.
+        partitions = self.hopcroft()
+        newTransitions = {}
+        newAccepting = []
+        newRejecting = []
+        newStart = self.startState
+
+        for k, partition in enumerate(partitions):
+            
+            if self.startState in partition: #Check if start state is in each partition
+                newStartState = k 
+            randomState = partition[0]  # random state
+            if (randomState in self.F): # if state is accepting add to new accepting, else add to new rejecting list
+                newAccepting.append(k)
+            else:
+                newRejecting.append(k)
+
+
+            newTransitions[k] = self.NewTransitions(randomState, partitions)
+
+        # Updating new minimized automaton M
+        self.F = newAccepting
+        self.regular = newRejecting
+        self.startState = newStartState
+        self.delta = newTransitions
+        self.n = len(partitions)
+        for j in range(0,self.n):
+         print("New transitions for state",j,".", newTransitions[j])
+
+    
+
+
+    def Tarjan(self, state, onStack, stateNums, low, stack):
+        # Upon discovering a state assign it an ID and low-link value.
+        stateNums[state] = self.disc
+        low[state] = self.disc
+        self.disc += 1
+
+        onStack[state] = True #add to stack
+        stack.append(state)
+
+        # neighbouring states 
+        for child in self.delta[state].values():
+          
+            if stateNums[child] == -1:
+                self.Tarjan(child, onStack, stateNums, low, stack) # recursive call of method if child is not found
+            if onStack[child]:
+                low[state] = min(low[child], low[state]) # update low if child is found on stack
+
+        if low[state] == stateNums[state]: # current state is head of a strongly connected component
+            temp = -1
+            SCCstates = []  # To store the states of the SCC.
+            while temp != state: # while temp != head of scc
+                temp = stack.pop()
+                onStack[temp] = False
+                SCCstates.append(temp)  # adding states of current scc
+            self.SCC.append(SCCstates)  
+
+
+
+    def SCC(self): # finds Strongly Connected Components
+        self.disc = 0
+        self.SCC = []
+        stateNums = [-1] * self.n  
+        lows = [-1] * self.n  # low link values.
+        visitedStates = []  
+        onStack = [False] * self.n  
+
+        for i in range(self.n):
+          
+            if stateNums[i] == -1: # find state's SCC
+                self.Tarjan(i, onStack, stateNums, lows, visitedStates)
+
+       
+        print("Strongly Connected Components:", len(self.SCC))
+        
+        largest = max(self.SCC, key=len)
+        smallest = min(self.SCC, key=len)
+        print("Smallest SCC size:", len(smallest))
+        print("Largest SCC size", len(largest))
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def main():
+
+    print("Q1. Generate Automaton A")
+    A = generateDFA()
+  
+    print("Q2. Compute Depth of A")
+    A.Depth()
+    
+    print("\nQ3. Hopcroft's Minimization - Automaton M\n")
+    A.minimize()
+    print("\nQ4. Depth of Automaton M")
+    A.Depth()
+    
+    print("\nQ5. Strongly Connected Components using Tarjan's Algorithm")
+    A.SCC()
+main()
